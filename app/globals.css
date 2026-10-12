@@ -1,0 +1,149 @@
+@import "tailwindcss";
+
+@theme {
+  --color-paper: #F4F6FB;
+  --color-card: #FFFFFF;
+  --color-ink: #0E1525;
+  --color-ink2: #3F4A63;
+  --color-line: #E2E8F2;
+  --color-cobalt: #2B5CFF;
+  --color-cobalt-deep: #1E40D8;
+  --color-verify: #0E9F6E;
+  --color-warn: #B45309;
+  --color-danger: #DC2626;
+  --color-rail: #0B1220;
+  --font-display: "Bricolage Grotesque", "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, monospace;
+}
+
+:root { color-scheme: light; }
+
+html, body { height: 100%; }
+
+html { overflow-x: clip; }
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+}
+
+/* Prevent iOS auto-zoom on focus: form controls stay 16px on small screens. */
+@media (max-width: 640px) {
+  input, textarea, select {
+    font-size: 16px;
+  }
+}
+
+/* Hide scrollbars on horizontal chip rails while keeping swipe. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+.font-display { font-family: var(--font-display); }
+.font-data { font-family: var(--font-data); }
+
+.card {
+  background: var(--color-card);
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+}
+.card-elev { box-shadow: 0 8px 24px rgba(14,21,37,.08); border: 1px solid transparent; }
+
+.btn-primary {
+  background: var(--color-cobalt);
+  color: white;
+  border-radius: 12px;
+  font-weight: 550;
+  transition: transform .12s ease, background .12s ease;
+}
+.btn-primary:hover { background: var(--color-cobalt-deep); }
+.btn-primary:active { transform: translateY(1px); }
+.btn-primary:disabled { opacity: .55; cursor: not-allowed; }
+
+.meter { height: 6px; border-radius: 999px; background: #E8EDF6; overflow: hidden; }
+.meter > span { display: block; height: 100%; border-radius: 999px; background: var(--color-cobalt); transition: width .8s cubic-bezier(.2,.8,.2,1); }
+
+.dial-sweep { transition: background 1s cubic-bezier(.2,.8,.2,1); }
+
+:focus-visible { outline: 2px solid var(--color-cobalt); outline-offset: 2px; }
+
+::selection { background: #C9D6FF; }
+
+.rail-link { border-radius: 10px; color: #3F4A63; }
+.rail-link:hover { background: #EFF3FB; color: #0E1525; }
+.rail-link[data-active="true"] { background: var(--color-cobalt); color: white; }
+
+.sidebar-desktop nav::-webkit-scrollbar { width: 6px; }
+.sidebar-desktop nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 999px; }
+.sidebar-desktop nav::-webkit-scrollbar-track { background: transparent; }
+.sidebar-desktop nav { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.14) transparent; }
+
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.rise { animation: rise .5s cubic-bezier(.2,.8,.2,1) both; }
+.rise-1 { animation-delay: .06s; } .rise-2 { animation-delay: .12s; } .rise-3 { animation-delay: .18s; }
+
+/* ---- World-class loading system (dossier instrument) ---- */
+@keyframes shimmer-slide { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.shimmer {
+  background: linear-gradient(100deg, #E9EDF6 30%, #F6F8FC 48%, #E9EDF6 62%);
+  background-size: 200% 100%;
+  animation: shimmer-slide 1.4s linear infinite;
+  min-height: 12px;
+}
+.shimmer-bar { display: block; height: 100%; width: 45% !important; background: linear-gradient(100deg, #C9D6FF 30%, #E4EBFF 50%, #C9D6FF 70%); background-size: 200% 100%; animation: shimmer-slide 1.2s linear infinite; }
+
+@keyframes dial-spin { to { transform: rotate(360deg); } }
+.loader-dial {
+  width: 64px; height: 64px; border-radius: 999px; display: grid; place-items: center;
+  background: conic-gradient(#2B5CFF 90deg, #E8EDF6 0deg);
+  animation: dial-spin 1.1s linear infinite;
+}
+.loader-dial > span { display: block; width: 46px; height: 46px; border-radius: 999px; background: #fff; }
+
+.step-dot {
+  width: 26px; height: 26px; border-radius: 999px; display: grid; place-items: center;
+  border: 1.5px solid #E2E8F2; color: #fff; font-size: 12px; font-weight: 800; flex-shrink: 0;
+}
+.step-dot.done { background: #0E9F6E; border-color: #0E9F6E; }
+.step-dot.active { border-color: #2B5CFF; }
+.step-spin { width: 14px; height: 14px; border-radius: 999px; border: 2px solid #C9D6FF; border-top-color: #2B5CFF; animation: dial-spin .7s linear infinite; }
+
+@keyframes typing-bounce { 0%, 60%, 100% { transform: none; opacity: .45; } 30% { transform: translateY(-4px); opacity: 1; } }
+.typing-dots { display: inline-flex; gap: 5px; }
+.typing-dots > span { width: 7px; height: 7px; border-radius: 999px; background: #2B5CFF; animation: typing-bounce 1.1s ease-in-out infinite; }
+.typing-dots > span:nth-child(2) { animation-delay: .15s; }
+.typing-dots > span:nth-child(3) { animation-delay: .3s; }
+
+@keyframes page-enter { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+.page-enter { animation: page-enter .45s cubic-bezier(.2,.8,.2,1) both; }
+
+@keyframes drawer-in { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
+.drawer-enter { animation: drawer-in .25s cubic-bezier(.2,.8,.2,1) both; }
+
+.reveal { opacity: 0; transform: translateY(22px); transition: opacity .6s cubic-bezier(.2,.8,.2,1), transform .6s cubic-bezier(.2,.8,.2,1); }
+.reveal.is-visible { opacity: 1; transform: none; }
+
+@keyframes marquee-x { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.marquee-track { animation: marquee-x 30s linear infinite; }
+.marquee-track:hover { animation-play-state: paused; }
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer, .shimmer-bar, .loader-dial, .step-spin, .typing-dots > span, .marquee-track { animation: none; }
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .page-enter { animation: none; }
+  .drawer-enter { animation: none; }
+}
+
+@media (max-width: 1023px) {
+  .sidebar-desktop { display: none; }
+}
+@media (min-width: 1024px) {
+  .nav-mobile { display: none; }
+}
