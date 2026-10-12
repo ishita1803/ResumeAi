@@ -1,0 +1,18 @@
+{
+  "name": "ResumeAI — From PDF to Career Plan",
+  "short_name": "ResumeAI",
+  "description": "Resume health, job match, skill gaps, roadmap, quiz and assistant — one honest career instrument for students.",
+  "id": "/",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#F4F6FB",
+  "theme_color": "#0B1220",
+  "categories": ["education", "productivity", "career"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
