@@ -1,19 +1,21 @@
 import { NextResponse } from "next/server";
+import { logError, logged } from "@/lib/log";
 import { authed, getLatestProfile, upsertProfile } from "@/lib/server-db";
 // GET: latest canonical profile for this user (cross-device restore).
 // POST: save canonical profile (called on analyze + profile save).
-export async function GET() {
+export const GET = logged("api.profile.GET", async () => {
   try {
     const auth = await authed().catch(() => null);
     if (!auth) return NextResponse.json({ row: null });
     const row = await getLatestProfile(auth.userId, auth.sb).catch(() => null);
     return NextResponse.json({ row });
-  } catch {
+  } catch (e) {
+    logError("api.profile", e);
     return NextResponse.json({ row: null });
   }
-}
+});
 
-export async function POST(req: Request) {
+export const POST = logged("api.profile.POST", async (req: Request) => {
   try {
     const body = await req.json();
     const { profile, resumeText } = body as {
@@ -31,12 +33,13 @@ export async function POST(req: Request) {
       health: body.health ?? {},
     }).catch(() => false);
     return NextResponse.json({ saved: ok });
-  } catch {
+  } catch (e) {
+    logError("api.profile", e);
     return NextResponse.json({ saved: false });
   }
-}
+});
 
-export async function DELETE() {
+export const DELETE = logged("api.profile.DELETE", async () => {
   try {
     const auth = await authed().catch(() => null);
     if (!auth) return NextResponse.json({ deleted: false });
@@ -44,10 +47,11 @@ export async function DELETE() {
     const sb = auth.sb as unknown as {
       from: (t: string) => { delete: () => { eq: (c: string, v: unknown) => Promise<unknown> } };
     };
-    await sb.from("profiles").delete().eq("user_id", auth.userId).catch(() => {});
+    await sb.from("profiles").delete().eq("user_id", auth.userId).catch((e) => logError("api.profile.delete", e));
     bust(`prof:${auth.userId}`);
     return NextResponse.json({ deleted: true });
-  } catch {
+  } catch (e) {
+    logError("api.profile", e);
     return NextResponse.json({ deleted: false });
   }
-}
+});

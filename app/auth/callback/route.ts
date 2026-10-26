@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { log, logged } from "@/lib/log";
 
 function env() {
   return {
@@ -11,7 +12,7 @@ function env() {
 
 // Exchanges the email-confirmation code for a session, then lands the user
 // where they were headed. Sign-up links point here via emailRedirectTo.
-export async function GET(request: Request) {
+export const GET = logged("auth.callback.GET", async (request: Request) => {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
   let next = searchParams.get("next") ?? "/dashboard";
@@ -37,7 +38,11 @@ export async function GET(request: Request) {
       });
       const { error } = await supabase.auth.exchangeCodeForSession(code);
       if (!error) return NextResponse.redirect(`${origin}${next}`);
+      log("error", "auth.callback", "code exchange failed", { err: error.message, status: error.status });
+    } else {
+      log("error", "auth.callback", "supabase env missing", { hasUrl: Boolean(url), hasKey: Boolean(key) });
     }
   }
+  if (!code) log("warn", "auth.callback", "no code param");
   return NextResponse.redirect(`${origin}/auth?error=confirm`);
-}
+});

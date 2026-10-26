@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
+import { log, logError, logged } from "@/lib/log";
 import { aiRoadmap, aiQuiz, aiImprove, aiChat, aiRoles } from "@/lib/gemini";
 import { aiCacheGet, aiCacheSet, authed, findRoadmap, saveRoadmap, sha } from "@/lib/server-db";
 
-export async function POST(req: Request) {
+export const POST = logged("api.ai.POST", async (req: Request) => {
   const url = new URL(req.url);
   const kind = url.searchParams.get("kind") ?? "roadmap";
+  log("info", "api.ai", "request", { kind });
   try {
     const body = await req.json();
     if (kind === "roadmap") {
@@ -15,7 +17,7 @@ export async function POST(req: Request) {
       const auth = await authed().catch(() => null);
       if (auth) {
         const hit = await findRoadmap(auth.userId, auth.sb, key).catch(() => null);
-        if (hit) return NextResponse.json({ steps: hit.steps, roadmapId: hit.id, title: hit.title, cached: true });
+        if (hit) { log("info", "api.ai", "cache hit", { kind }); return NextResponse.json({ steps: hit.steps, roadmapId: hit.id, title: hit.title, cached: true }); }
       }
       const r = await aiRoadmap(body.profile, gaps);
       let roadmapId: string | null = null;
@@ -33,7 +35,7 @@ export async function POST(req: Request) {
       const auth = await authed().catch(() => null);
       if (auth) {
         const hit = await aiCacheGet(auth.userId, auth.sb, `improve:${sig}`).catch(() => null);
-        if (hit?.value) return NextResponse.json({ ...(hit.value as object), cached: true });
+        if (hit?.value) { log("info", "api.ai", "cache hit", { kind }); return NextResponse.json({ ...(hit.value as object), cached: true }); }
       }
       const r = await aiImprove(body.profile);
       if (auth) await aiCacheSet(auth.userId, auth.sb, `improve:${sig}`, r).catch(() => {});
@@ -47,14 +49,15 @@ export async function POST(req: Request) {
       const auth = await authed().catch(() => null);
       if (auth) {
         const hit = await aiCacheGet(auth.userId, auth.sb, `roles:${sig}`).catch(() => null);
-        if (hit?.value) return NextResponse.json({ ...(hit.value as object), cached: true });
+        if (hit?.value) { log("info", "api.ai", "cache hit", { kind }); return NextResponse.json({ ...(hit.value as object), cached: true }); }
       }
       const r = await aiRoles(body.profile);
       if (auth) await aiCacheSet(auth.userId, auth.sb, `roles:${sig}`, r).catch(() => {});
       return NextResponse.json({ ...r, cached: false });
     }
     return NextResponse.json({ error: "Unknown kind" }, { status: 400 });
-  } catch {
+  } catch (e) {
+    logError("api.ai", e, { kind });
     return NextResponse.json({ error: "AI request failed." }, { status: 500 });
   }
-}
+});

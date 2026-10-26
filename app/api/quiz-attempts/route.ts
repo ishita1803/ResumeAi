@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
+import { logError, logged } from "@/lib/log";
 import { authed, getQuizAttempt, listHistory, saveQuizAttempt } from "@/lib/server-db";
 
 // POST: store quiz metrics + full review → returns id for /quiz/[id].
 // GET ?history=1: recent attempts. GET ?id=: single attempt (RLS-scoped).
-export async function POST(req: Request) {
+export const POST = logged("api.quiz-attempts.POST", async (req: Request) => {
   try {
     const body = await req.json();
     const { topics, count, questions, answers, score } = body;
@@ -16,12 +17,13 @@ export async function POST(req: Request) {
       topics, count: Number(count) || questions.length, questions, answers: answers ?? {}, score: Number(score) || 0,
     }).catch(() => null);
     return NextResponse.json({ id, stored: Boolean(id) });
-  } catch {
+  } catch (e) {
+    logError("api.quiz-attempts", e);
     return NextResponse.json({ error: "Save failed." }, { status: 500 });
   }
-}
+});
 
-export async function GET(req: Request) {
+export const GET = logged("api.quiz-attempts.GET", async (req: Request) => {
   try {
     const { searchParams } = new URL(req.url);
     const auth = await authed().catch(() => null);
@@ -36,7 +38,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ attempt });
     }
     return NextResponse.json({ error: "Use ?history=1 or ?id=" }, { status: 400 });
-  } catch {
+  } catch (e) {
+    logError("api.quiz-attempts", e);
     return NextResponse.json({ items: [], attempt: null });
   }
-}
+});

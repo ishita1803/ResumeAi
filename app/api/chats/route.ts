@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
+import { logError, logged } from "@/lib/log";
 import { authed, deleteChatRow, listChats, upsertChats, type ChatRow } from "@/lib/server-db";
 
 // GET: all chat sessions for this user (cross-device restore).
 // POST: replace-or-insert sessions [{id,title,messages,createdAt,updatedAt}].
 // DELETE ?id=: remove one session.
-export async function GET() {
+export const GET = logged("api.chats.GET", async () => {
   try {
     const auth = await authed().catch(() => null);
     if (!auth) return NextResponse.json({ sessions: [] });
@@ -17,12 +18,13 @@ export async function GET() {
       updatedAt: r.updated_at ? Date.parse(String(r.updated_at)) : Date.now(),
     }));
     return NextResponse.json({ sessions });
-  } catch {
+  } catch (e) {
+    logError("api.chats", e);
     return NextResponse.json({ sessions: [] });
   }
-}
+});
 
-export async function POST(req: Request) {
+export const POST = logged("api.chats.POST", async (req: Request) => {
   try {
     const body = await req.json();
     const sessions = Array.isArray(body.sessions) ? body.sessions : [];
@@ -42,12 +44,13 @@ export async function POST(req: Request) {
     })).filter((s: ChatRow) => s.id);
     const ok = await upsertChats(auth.userId, auth.sb, clean).catch(() => false);
     return NextResponse.json({ saved: ok });
-  } catch {
+  } catch (e) {
+    logError("api.chats", e);
     return NextResponse.json({ saved: false });
   }
-}
+});
 
-export async function DELETE(req: Request) {
+export const DELETE = logged("api.chats.DELETE", async (req: Request) => {
   try {
     const { searchParams } = new URL(req.url);
     const auth = await authed().catch(() => null);
@@ -56,7 +59,7 @@ export async function DELETE(req: Request) {
       const sb = auth.sb as unknown as {
         from: (t: string) => { delete: () => { eq: (c: string, v: unknown) => Promise<unknown> } };
       };
-      await sb.from("chat_sessions").delete().eq("user_id", auth.userId).catch(() => {});
+      await sb.from("chat_sessions").delete().eq("user_id", auth.userId).catch((e) => logError("api.chats.deleteAll", e));
       const { bust } = await import("@/lib/server-db");
       bust(`chats:${auth.userId}`);
       return NextResponse.json({ deleted: true });
@@ -65,7 +68,8 @@ export async function DELETE(req: Request) {
     if (!id) return NextResponse.json({ deleted: false });
     await deleteChatRow(auth.userId, auth.sb, id).catch(() => {});
     return NextResponse.json({ deleted: true });
-  } catch {
+  } catch (e) {
+    logError("api.chats", e);
     return NextResponse.json({ deleted: false });
   }
-}
+});

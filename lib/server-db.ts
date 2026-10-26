@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash } from "crypto";
 import { createClient } from "@/utils/supabase/server";
+import { log, logError } from "@/lib/log";
 
 /** Deterministic content hash for AI-result dedupe (saves Gemini tokens). */
 export function sha(input: string): string {
@@ -17,14 +18,20 @@ export function dbConfigured(): boolean {
 type SB = NonNullable<Awaited<ReturnType<typeof createClient>>>;
 
 export async function authed(): Promise<{ sb: SB; userId: string } | null> {
-  if (!dbConfigured()) return null;
+  if (!dbConfigured()) {
+    log("warn", "db.authed", "supabase env missing — all sync disabled");
+    return null;
+  }
   try {
     const sb = await createClient();
     if (!sb) return null;
-    const { data } = await (sb as unknown as { auth: { getUser: () => Promise<{ data: { user: { id: string } | null } }> } }).auth.getUser();
+    const { data, error } = await (sb as unknown as { auth: { getUser: () => Promise<{ data: { user: { id: string } | null }; error?: unknown }> } }).auth.getUser();
+    // no session is normal for signed-out visitors; only log real failures
+    if (error && (error as { name?: string }).name !== "AuthSessionMissingError") dbErr("authed", error);
     if (!data.user) return null;
     return { sb: sb as unknown as SB, userId: data.user.id };
-  } catch {
+  } catch (e) {
+    logError("db.authed", e);
     return null;
   }
 }
@@ -59,21 +66,26 @@ async function evictBeyondCap(sb: SB, tbl: string, userId: string, keep: number,
     const sel = t.from(tbl).select(idCol) as unknown as {
       eq: (c: string, v: unknown) => {
         order: (c: string, o?: { ascending?: boolean }) => {
-          range: (a: number, b: number) => Promise<{ data: Record<string, string>[] | null }>;
+          range: (a: number, b: number) => Promise<{ data: Record<string, string>[] | null; error?: unknown }>;
         };
       };
     };
-    const { data } = await sel.eq("user_id", userId).order("created_at", { ascending: false }).range(keep, keep + 99);
+    const { data, error } = await sel.eq("user_id", userId).order("created_at", { ascending: false }).range(keep, keep + 99);
+      dbErr("evict", error);
     const ids = (data ?? []).map((r) => r[idCol]).filter(Boolean);
     if (!ids.length) return;
     const del = (t.from(tbl) as unknown as {
       delete: () => { eq: (c: string, v: unknown) => { in: (c: string, v: unknown[]) => Promise<unknown> } };
     }).delete();
     await del.eq("user_id", userId).in(idCol, ids);
-  } catch { /* eviction is hygiene, never a save failure */ }
+  } catch (e) { logError("db.evict", e, { tbl }); /* hygiene, never a save failure */ }
 }
 
 type Row = Record<string, unknown>;
+/** Supabase returns errors as values, not throws; PGRST116 = "no rows" on .single(), expected. */
+function dbErr(fn: string, error: unknown) {
+  if (error && (error as { code?: string }).code !== "PGRST116") logError(`db.${fn}`, error);
+}
 async function table(sb: SB): Promise<{
   from: (t: string) => {
     select: (c: string) => unknown;
@@ -94,8 +106,8 @@ interface Q {
   eq: (c: string, v: unknown) => Q;
   order: (c: string, o?: unknown) => Q;
   limit: (n: number) => Q;
-  single: () => Promise<{ data: Row | null }>;
-  then: (r: (v: { data: Row[] | null }) => unknown) => Promise<unknown>;
+  single: () => Promise<{ data: Row | null; error?: unknown }>;
+  then: (r: (v: { data: Row[] | null; error?: unknown }) => unknown) => Promise<unknown>;
 }
 
 // -- Analyses (resume-hash dedupe) --
@@ -104,23 +116,25 @@ export async function findAnalysis(userId: string, sb: SB, hash: string): Promis
     try {
       const t = await table(sb);
       const q = t.from("analyses").select("*") as unknown as Q;
-      const { data } = await q.eq("user_id", userId).eq("resume_hash", hash).limit(1).single();
+      const { data, error } = await q.eq("user_id", userId).eq("resume_hash", hash).limit(1).single();
+      dbErr("findAnalysis", error);
       return data;
-    } catch { return null; }
+    } catch (e) { logError("db.findAnalysis", e); return null; }
   });
 }
 
 export async function saveAnalysis(userId: string, sb: SB, row: { resume_hash: string; resume_text: string; parsed: unknown; health: unknown; ai_note: string }): Promise<string | null> {
   try {
     const t = await table(sb);
-    const { data } = await t.from("analyses").upsert(
+    const { data, error } = await t.from("analyses").upsert(
       { user_id: userId, ...row },
       { onConflict: "user_id,resume_hash" }
     );
+    dbErr("saveAnalysis", error);
     bust(`an:${userId}:`);
     await evictBeyondCap(sb, "analyses", userId, 20);
     return (data?.[0]?.id as string) ?? null;
-  } catch { return null; }
+  } catch (e) { logError("db.saveAnalysis", e); return null; }
 }
 
 // -- Job matches (JD+skills hash dedupe) --
@@ -129,9 +143,10 @@ export async function findMatch(userId: string, sb: SB, jdHash: string): Promise
     try {
       const t = await table(sb);
       const q = t.from("job_matches").select("*") as unknown as Q;
-      const { data } = await q.eq("user_id", userId).eq("jd_hash", jdHash).order("created_at", { ascending: false }).limit(1).single();
+      const { data, error } = await q.eq("user_id", userId).eq("jd_hash", jdHash).order("created_at", { ascending: false }).limit(1).single();
+      dbErr("findMatch", error);
       return data;
-    } catch { return null; }
+    } catch (e) { logError("db.findMatch", e); return null; }
   });
 }
 
@@ -139,12 +154,13 @@ export async function saveMatch(userId: string, sb: SB, row: { title: string; co
   try {
     const t = await table(sb);
     const ins = t.from("job_matches").insert({ user_id: userId, ...row });
-    const { data } = await ins.select("id");
+    const { data, error } = await ins.select("id");
+      dbErr("saveMatch", error);
     bust(`jm:${userId}:`);
     bust(`hist:${userId}:matches`);
     await evictBeyondCap(sb, "job_matches", userId, 30);
     return (data?.[0]?.id as string) ?? null;
-  } catch { return null; }
+  } catch (e) { logError("db.saveMatch", e); return null; }
 }
 
 export async function getMatch(userId: string, sb: SB, id: string): Promise<Row | null> {
@@ -152,9 +168,10 @@ export async function getMatch(userId: string, sb: SB, id: string): Promise<Row 
     try {
       const t = await table(sb);
       const q = t.from("job_matches").select("*") as unknown as Q;
-      const { data } = await q.eq("id", id).eq("user_id", userId).limit(1).single();
+      const { data, error } = await q.eq("id", id).eq("user_id", userId).limit(1).single();
+      dbErr("getMatch", error);
       return data;
-    } catch { return null; }
+    } catch (e) { logError("db.getMatch", e); return null; }
   });
 }
 
@@ -164,9 +181,10 @@ export async function findRoadmap(userId: string, sb: SB, key: string): Promise<
     try {
       const t = await table(sb);
       const q = t.from("roadmaps").select("*") as unknown as Q;
-      const { data } = await q.eq("user_id", userId).eq("cache_key", key).order("created_at", { ascending: false }).limit(1).single();
+      const { data, error } = await q.eq("user_id", userId).eq("cache_key", key).order("created_at", { ascending: false }).limit(1).single();
+      dbErr("findRoadmap", error);
       return data;
-    } catch { return null; }
+    } catch (e) { logError("db.findRoadmap", e); return null; }
   });
 }
 
@@ -174,12 +192,13 @@ export async function saveRoadmap(userId: string, sb: SB, row: { job_match_id: s
   try {
     const t = await table(sb);
     const ins = t.from("roadmaps").insert({ user_id: userId, ...row });
-    const { data } = await ins.select("id");
+    const { data, error } = await ins.select("id");
+      dbErr("saveRoadmap", error);
     bust(`rm:${userId}:`);
     bust(`hist:${userId}:roadmaps`);
     await evictBeyondCap(sb, "roadmaps", userId, 30);
     return (data?.[0]?.id as string) ?? null;
-  } catch { return null; }
+  } catch (e) { logError("db.saveRoadmap", e); return null; }
 }
 
 export async function getRoadmap(userId: string, sb: SB, id: string): Promise<Row | null> {
@@ -187,9 +206,10 @@ export async function getRoadmap(userId: string, sb: SB, id: string): Promise<Ro
     try {
       const t = await table(sb);
       const q = t.from("roadmaps").select("*") as unknown as Q;
-      const { data } = await q.eq("id", id).eq("user_id", userId).limit(1).single();
+      const { data, error } = await q.eq("id", id).eq("user_id", userId).limit(1).single();
+      dbErr("getRoadmap", error);
       return data;
-    } catch { return null; }
+    } catch (e) { logError("db.getRoadmap", e); return null; }
   });
 }
 
@@ -199,9 +219,10 @@ export async function getLatestProfile(userId: string, sb: SB): Promise<Row | nu
     try {
       const t = await table(sb);
       const q = t.from("profiles").select("*") as unknown as Q;
-      const { data } = await q.eq("user_id", userId).order("updated_at", { ascending: false }).limit(1).single();
+      const { data, error } = await q.eq("user_id", userId).order("updated_at", { ascending: false }).limit(1).single();
+      dbErr("getLatestProfile", error);
       return data;
-    } catch { return null; }
+    } catch (e) { logError("db.getLatestProfile", e); return null; }
   });
 }
 
@@ -211,13 +232,14 @@ export async function upsertProfile(userId: string, sb: SB, row: { name: string;
     const payload = { user_id: userId, ...row, updated_at: new Date().toISOString() };
     let r = await t.from("profiles").upsert(payload, { onConflict: "user_id" });
     if (r.error) {
+      dbErr("upsertProfile.upsert", r.error);
       // Unique constraint may predate this migration — plain insert still works (loader takes latest).
       r = await t.from("profiles").insert(payload);
-      if (r.error) return false;
+      if (r.error) { dbErr("upsertProfile", r.error); return false; }
     }
     bust(`prof:${userId}`);
     return true;
-  } catch { return false; }
+  } catch (e) { logError("db.upsertProfile", e); return false; }
 }
 
 // -- Chat sessions sync --
@@ -233,9 +255,9 @@ export async function listChats(userId: string, sb: SB): Promise<Row[]> {
       const t = await table(sb);
       const q = t.from("chat_sessions").select("id,title,messages,created_at,updated_at") as unknown as Q;
       let out: Row[] = [];
-      await q.eq("user_id", userId).order("updated_at", { ascending: false }).limit(20).then((v) => { out = v.data ?? []; });
+      await q.eq("user_id", userId).order("updated_at", { ascending: false }).limit(20).then((v) => { dbErr("listChats", v.error); out = v.data ?? []; });
       return out;
-    } catch { return []; }
+    } catch (e) { logError("db.listChats", e); return []; }
   });
 }
 
@@ -249,10 +271,10 @@ export async function upsertChats(userId: string, sb: SB, chats: ChatRow[]): Pro
     }));
     if (!rows.length) return true;
     const r = await t.from("chat_sessions").upsert(rows, { onConflict: "id" });
-    if (r.error) return false;
+    if (r.error) { dbErr("upsertChats", r.error); return false; }
     bust(`chats:${userId}`);
     return true;
-  } catch { return false; }
+  } catch (e) { logError("db.upsertChats", e); return false; }
 }
 
 export async function deleteChatRow(userId: string, sb: SB, id: string): Promise<void> {
@@ -263,7 +285,7 @@ export async function deleteChatRow(userId: string, sb: SB, id: string): Promise
     }).delete();
     await del.eq("id", id).eq("user_id", userId);
     bust(`chats:${userId}`);
-  } catch {}
+  } catch (e) { logError("db.deleteChatRow", e); }
 }
 
 // -- Quiz attempts (metrics) --
@@ -271,11 +293,12 @@ export async function saveQuizAttempt(userId: string, sb: SB, row: { topics: unk
   try {
     const t = await table(sb);
     const ins = t.from("quiz_attempts").insert({ user_id: userId, ...row });
-    const { data } = await ins.select("id");
+    const { data, error } = await ins.select("id");
+      dbErr("saveQuizAttempt", error);
     bust(`hist:${userId}:attempts`);
     await evictBeyondCap(sb, "quiz_attempts", userId, 30);
     return (data?.[0]?.id as string) ?? null;
-  } catch { return null; }
+  } catch (e) { logError("db.saveQuizAttempt", e); return null; }
 }
 
 export async function getQuizAttempt(userId: string, sb: SB, id: string): Promise<Row | null> {
@@ -283,9 +306,10 @@ export async function getQuizAttempt(userId: string, sb: SB, id: string): Promis
     try {
       const t = await table(sb);
       const q = t.from("quiz_attempts").select("*") as unknown as Q;
-      const { data } = await q.eq("id", id).eq("user_id", userId).limit(1).single();
+      const { data, error } = await q.eq("id", id).eq("user_id", userId).limit(1).single();
+      dbErr("getQuizAttempt", error);
       return data;
-    } catch { return null; }
+    } catch (e) { logError("db.getQuizAttempt", e); return null; }
   });
 }
 
@@ -295,19 +319,21 @@ export async function aiCacheGet(userId: string, sb: SB, key: string): Promise<R
     try {
       const t = await table(sb);
       const q = t.from("ai_cache").select("*") as unknown as Q;
-      const { data } = await q.eq("user_id", userId).eq("key", key).limit(1).single();
+      const { data, error } = await q.eq("user_id", userId).eq("key", key).limit(1).single();
+      dbErr("aiCacheGet", error);
       return data;
-    } catch { return null; }
+    } catch (e) { logError("db.aiCacheGet", e); return null; }
   });
 }
 
 export async function aiCacheSet(userId: string, sb: SB, key: string, value: unknown): Promise<void> {
   try {
     const t = await table(sb);
-    await t.from("ai_cache").upsert({ user_id: userId, key, value }, { onConflict: "user_id,key" });
+    const { error } = await t.from("ai_cache").upsert({ user_id: userId, key, value }, { onConflict: "user_id,key" });
+    dbErr("aiCacheSet", error);
     bust(`ac:${userId}:${key}`);
     await evictBeyondCap(sb, "ai_cache", userId, 50, "key");
-  } catch {}
+  } catch (e) { logError("db.aiCacheSet", e); }
 }
 
 // -- History lists (cached reads) --
@@ -319,8 +345,8 @@ export async function listHistory(userId: string, sb: SB, kind: "matches" | "roa
       const cols = kind === "matches" ? "id,title,company,created_at,result" : kind === "roadmaps" ? "id,title,created_at,job_match_id" : "id,topics,score,count,created_at";
       const q = t.from(tbl).select(cols) as unknown as Q;
       let out: Row[] = [];
-      await q.eq("user_id", userId).order("created_at", { ascending: false }).limit(limit).then((v) => { out = v.data ?? []; });
+      await q.eq("user_id", userId).order("created_at", { ascending: false }).limit(limit).then((v) => { dbErr("listHistory", v.error); out = v.data ?? []; });
       return out;
-    } catch { return []; }
+    } catch (e) { logError("db.listHistory", e); return []; }
   });
 }
