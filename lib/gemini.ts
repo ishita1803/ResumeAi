@@ -22,7 +22,8 @@ const FALLBACKS = ["gemini-3-flash-preview", "gemini-flash-lite-latest"];
 
 function model(name: string) {
   const gen = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-  return gen.getGenerativeModel({ model: name });
+  // Cap each attempt so a hung model falls through to the next one instead of eating the whole function budget.
+  return gen.getGenerativeModel({ model: name }, { timeout: 15000 });
 }
 
 /** Try models in order; throw only when all fail. Saves sessions during 503 spikes. */
@@ -314,17 +315,17 @@ export async function aiChat(profile: ParsedProfile | null, history: { role: str
     // Grounded rule-based fallback
     const skills = profile?.skills.join(", ") || "no parsed skills yet";
     const t = message.toLowerCase();
-    if (t.includes("gap") || t.includes("learn")) return { reply: `Based on your parsed profile (${skills}), fix this order: 1) top missing JD skill, 2) one deploy skill (Docker/AWS), 3) one proof skill (testing). Open Roadmap for the step plan. (Demo reply — add GEMINI_API_KEY for full AI.)` };
-    if (t.includes("job") || t.includes("role")) { const recs = profile ? recommendRoles(profile).map((r) => r.role).join(", ") : "Upload a resume first"; return { reply: `Roles that fit your current skills: ${recs}. Paste a JD on the Jobs page for an exact score. (Demo reply.)` }; }
-    return { reply: `I can see your profile: ${profile?.name ?? "no resume yet"} — ${skills}. Ask me about gaps, roles, roadmap order, or projects. (Demo reply — add GEMINI_API_KEY for full AI.)` };
+    if (t.includes("gap") || t.includes("learn")) return { aiDown: true, reply: `Based on your parsed profile (${skills}), fix this order: 1) top missing JD skill, 2) one deploy skill (Docker/AWS), 3) one proof skill (testing). Open Roadmap for the step plan. (Demo reply — add GEMINI_API_KEY for full AI.)` };
+    if (t.includes("job") || t.includes("role")) { const recs = profile ? recommendRoles(profile).map((r) => r.role).join(", ") : "Upload a resume first"; return { aiDown: true, reply: `Roles that fit your current skills: ${recs}. Paste a JD on the Jobs page for an exact score. (Demo reply.)` }; }
+    return { aiDown: true, reply: `I can see your profile: ${profile?.name ?? "no resume yet"} — ${skills}. Ask me about gaps, roles, roadmap order, or projects. (Demo reply — add GEMINI_API_KEY for full AI.)` };
   }
   try {
     const ctx = `Profile: ${JSON.stringify(profile ?? {})}. ${GUARD} Answer as a concise career coach (max 150 words). Use short paragraphs and markdown lists where they help.`;
     const convo = history.map((h) => `${h.role}: ${h.text}`).join("\n");
     const text = await genText(`${ctx}\n${convo}\nuser: ${message}`, false);
-    return { reply: text.slice(0, 1200) };
+    return { aiDown: true, reply: text.slice(0, 1200) };
   } catch (e) {
     logError("gemini.aiChat", e);
-    return { reply: "AI unreachable — try again (demo fallback active)." };
+    return { aiDown: true, reply: "AI unreachable — try again (demo fallback active)." };
   }
 }

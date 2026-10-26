@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import { useApp } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/shell";
+import { AiNotice } from "@/components/ai-notice";
 import { ChatThinking } from "@/components/loading";
 import { Send, Bot, Plus, Trash2, MessageSquare, PanelLeft, X, Sparkles } from "lucide-react";
 import type { ChatSession } from "@/lib/store";
@@ -100,6 +101,8 @@ export default function AssistantPage() {
     el.style.height = Math.min(el.scrollHeight, 140) + "px";
   }
 
+  const [aiDown, setAiDown] = React.useState(false);
+
   async function send(preset?: string) {
     const text = (preset ?? msg).trim();
     if (!text || busy) return;
@@ -111,8 +114,10 @@ export default function AssistantPage() {
     try {
       const r = await fetch("/api/ai?kind=chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile, history: [...chat, { role: "user", text }].slice(-8), message: text }) });
       const j = await r.json();
+      setAiDown(Boolean(j.aiDown) || !r.ok);
       pushChat({ role: "assistant", text: j.reply ?? "Empty reply — try again." });
     } catch {
+      setAiDown(true);
       pushChat({ role: "assistant", text: "Send failed — check your connection and try again." });
     } finally { setBusy(false); }
   }
@@ -133,6 +138,7 @@ export default function AssistantPage() {
 
   return (
     <AppShell requireAuth title="Career assistant" sub={profile ? `Advising ${first} · ${skillBit} · ${jobBit}. Every answer stays inside your resume.` : "Upload a resume to make me profile-aware."}>
+      {aiDown && <div className="mb-3"><AiNotice>The AI assistant couldn't be reached — the last reply is a built-in fallback, not a full AI answer. Try again shortly.</AiNotice></div>}
       <div className="grid items-start gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
         {/* Desktop session rail — sticky, self-scrolling, truncation-safe */}
         <aside className="card sticky top-6 hidden max-h-[calc(100dvh-3rem)] min-w-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden p-3 lg:grid" aria-label="Chat sessions">

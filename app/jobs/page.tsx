@@ -2,6 +2,7 @@
 import React from "react";
 import { useApp } from "@/lib/store";
 import { AppShell, ScoreDial, Chip, Empty, Meter } from "@/components/shell";
+import { AiNotice } from "@/components/ai-notice";
 import { MatchCardsSkeleton, Skeleton } from "@/components/loading";
 import { Reveal } from "@/components/reveal";
 import { recommendRoles } from "@/lib/analysis";
@@ -21,6 +22,7 @@ export default function JobsPage() {
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState("");
   const [strategy, setStrategy] = React.useState("");
+  const [strategyDown, setStrategyDown] = React.useState(false);
   const [whatIf, setWhatIf] = React.useState<string[]>([]);
   const [improving, setImproving] = React.useState(false);
   const [live, setLive] = React.useState<LiveJob[]>([]);
@@ -64,6 +66,7 @@ export default function JobsPage() {
       if (!r.ok) throw new Error(j.error);
       setJobs(withDbIds(j.matches, j.dbIds));
       setStrategy(j.strategy ?? "");
+      setStrategyDown(!j.strategy);
       setCachedNote(Boolean(j.cached));
     } catch (e) { setErr(e instanceof Error ? e.message : "Match failed"); }
     finally { setBusy(false); }
@@ -113,7 +116,8 @@ export default function JobsPage() {
     setImproving(true);
     try {
       const r = await fetch("/api/ai?kind=improve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ profile }) });
-      setImprove(await r.json());
+      const j = await r.json().catch(() => null);
+      setImprove(r.ok && j ? j : { suggestions: [] });
     } finally { setImproving(false); }
   }
 
@@ -147,6 +151,7 @@ export default function JobsPage() {
           <button onClick={() => { setForms(SAMPLE_JDS); setTimeout(() => runMatch(SAMPLE_JDS), 50); }} className="min-h-[44px] rounded-[12px] border px-4 py-2.5 text-[13px] font-semibold" style={{ borderColor: "#E2E8F2", background: "#fff" }}>Try 3 samples</button>
         </div>
         {err && <div className="rounded-[10px] px-3 py-2 text-[13px] font-medium" style={{ background: "#FDE8E8", color: "#B42323" }}>{err}</div>}
+        {strategyDown && jobs.length > 0 && !busy && <AiNotice>AI strategy advice is unavailable right now. Match scores are still computed, only the written advice is missing.</AiNotice>}
         {strategy && <div className="rounded-[10px] px-3.5 py-2.5 text-[13px]" style={{ background: "#E4EBFF", color: "#1E40D8" }}>{strategy}</div>}
       </div>
 
@@ -285,6 +290,7 @@ export default function JobsPage() {
               <div className="flex flex-wrap items-center justify-between gap-2"><div className="font-display text-[16px] font-bold">Resume wording fixes</div><button onClick={loadImprove} disabled={improving} className="flex min-h-[40px] items-center gap-1.5 rounded-[10px] border px-3 py-2 text-[12px] font-bold disabled:opacity-60" style={{ borderColor: "#E2E8F2" }}>{improving ? <Loader2 size={13} className="animate-spin" /> : <Wand2 size={13} />} {improving ? "Writing…" : "Generate"}</button></div>
               {!improve && !improving && <div className="mt-2 text-[13px]" style={{ color: "#3F4A63" }}>Grounded rewrites only — no invented experience, ever.</div>}
               {improving && <div className="mt-2.5 grid gap-2" aria-hidden><Skeleton style={{ height: 58 }} /><Skeleton style={{ height: 58 }} /><Skeleton style={{ height: 58 }} /></div>}
+              {improve && !improve.aiRewrite && !improving && <div className="mt-2.5"><AiNotice>AI rewrite is unavailable right now — showing rule-based suggestions only.</AiNotice></div>}
               {improve && <div className="mt-2.5 grid gap-2">{improve.suggestions.map((s, i) => <div key={i} className="min-w-0 break-words rounded-[10px] border px-3 py-2 text-[12.5px]" style={{ borderColor: "#E2E8F2" }}><b>{s.section}:</b> <span style={{ color: "#3F4A63" }}>{s.before}</span><br />→ <b>{s.after}</b><br /><span className="italic" style={{ color: "#3F4A63" }}>{s.reason}</span></div>)}{improve.aiRewrite && <div className="rounded-[10px] p-3 text-[12.5px] whitespace-pre-wrap break-words" style={{ background: "#F2F5FF" }}>{improve.aiRewrite}</div>}</div>}
             </div>
           </Reveal>
