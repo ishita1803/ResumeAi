@@ -215,6 +215,7 @@ npm run dev                  # http://localhost:3000
 | `NEXT_PUBLIC_SUPABASE_URL` | yes | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | yes | Supabase publishable (anon) key |
 | `GEMINI_API_KEY` | no | Google AI Studio key — unlocks AI structuring; app runs deterministically without it |
+| `GEMINI_API_KEY_2` | no | Backup key — used automatically when the first is rate-limited or rejected |
 | `GEMINI_MODEL` | no | Defaults to `gemini-flash-latest` |
 | `NEXT_PUBLIC_SITE_URL` | no | Canonical site URL for OG tags, sitemap and robots (defaults to localhost) |
 
