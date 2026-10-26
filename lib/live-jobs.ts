@@ -2,6 +2,8 @@
 // - Remotive: supports ?search= — primary, queried per profile skill.
 // - Arbeitnow: bulk list, filtered locally by skill keywords — secondary top-up.
 
+import { log } from "./log";
+
 export interface LiveJob {
   id: string;
   title: string;
@@ -117,7 +119,10 @@ export async function searchLiveJobs(skills: string[]): Promise<{ jobs: LiveJob[
   const seen = new Set<string>();
   const jobs: LiveJob[] = [];
   for (const s of settled) {
-    if (s.status !== "fulfilled") continue;
+    if (s.status !== "fulfilled") {
+      log("warn", "live-jobs", "source failed", { err: String(s.reason?.message ?? s.reason).slice(0, 200) });
+      continue;
+    }
     for (const j of s.value) {
       if (!j.title || seen.has(j.url)) continue;
       seen.add(j.url);

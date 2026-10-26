@@ -5,10 +5,13 @@ import {
 } from "./analysis";
 import { normalizeSkill } from "./skills";
 import { cleanName } from "./analysis";
+import { log, logError } from "./log";
 import type { ParsedProfile, QuizQ } from "./types";
 
 function hasKey() {
-  return Boolean(process.env.GEMINI_API_KEY);
+  const ok = Boolean(process.env.GEMINI_API_KEY);
+  if (!ok) log("warn", "gemini", "GEMINI_API_KEY missing — demo mode");
+  return ok;
 }
 
 // Stable alias — retired version pins (e.g. gemini-2.5-flash) 404 for new
@@ -25,6 +28,7 @@ function model(name: string) {
 /** Try models in order; throw only when all fail. Saves sessions during 503 spikes. */
 async function genText(prompt: string, jsonMode: boolean, opts?: { temperature?: number; maxOutputTokens?: number }): Promise<string> {
   const tried: string[] = [];
+  const t0 = Date.now();
   for (const name of [MODEL, ...FALLBACKS.filter((f) => f !== MODEL)]) {
     try {
       const m = model(name);
@@ -34,11 +38,15 @@ async function genText(prompt: string, jsonMode: boolean, opts?: { temperature?:
           ? { responseMimeType: "application/json", temperature: opts?.temperature ?? 0.1, maxOutputTokens: opts?.maxOutputTokens ?? 2048 }
           : { temperature: opts?.temperature ?? 0.4, maxOutputTokens: opts?.maxOutputTokens ?? 1200 },
       });
-      return r.response.text();
+      const out = r.response.text();
+      log("info", "gemini", "generated", { model: name, json: jsonMode, promptChars: prompt.length, outChars: out.length, ms: Date.now() - t0, attempt: tried.length + 1 });
+      return out;
     } catch (e) {
+      log("warn", "gemini", "model failed, trying next", { model: name, err: (e as Error).message?.slice(0, 200) });
       tried.push(`${name}: ${(e as Error).message?.slice(0, 80)}`);
     }
   }
+  log("error", "gemini", "all models failed", { tried });
   throw new Error(tried.join(" | "));
 }
 
@@ -81,7 +89,8 @@ function sanitizeLLMProfile(raw: string): LLMProfile | null {
       isResume: typeof j.isResume === "boolean" ? j.isResume : undefined,
       summary: typeof j.summary === "string" ? j.summary.slice(0, 300) : undefined,
     };
-  } catch {
+  } catch (e) {
+    logError("gemini.sanitizeProfile", e);
     return null;
   }
 }
@@ -130,6 +139,7 @@ export async function aiAnalyze(resumeText: string) {
     };
   } catch (e) {
     if (e instanceof NotResumeError) throw e;
+    logError("gemini.aiAnalyze", e);
     return { profile: base, health: scoreHealth(base, resumeText), aiNote: "Demo fallback — Gemini unreachable.", parsedBy: "local" as const };
   }
 }
@@ -141,7 +151,8 @@ export async function aiMatch(profile: ParsedProfile, jobs: { title: string; com
     const Malaysia = matches.map((x) => `${x.title}: ${x.matchScore}% (missing: ${x.missing.join(", ") || "none"})`).join("\n");
     const text = await genText(`${GUARD}\nCompare these deterministic match scores and write a 2-line strategy for which job to target first:\n${Malaysia}`, false);
     return { matches, strategy: text.slice(0, 500) };
-  } catch {
+  } catch (e) {
+    logError("gemini.aiMatch", e);
     return { matches };
   }
 }
@@ -182,7 +193,8 @@ function sanitizeQuizItems(raw: string, skill: string): Omit<QuizQ, "id">[] {
       out.push({ skill, question, options: opts, answer, explain });
     }
     return out;
-  } catch {
+  } catch (e) {
+    logError("gemini.sanitizeQuiz", e);
     return [];
   }
 }
@@ -252,7 +264,8 @@ export async function aiQuiz(skills: string[], perSkill = 6) {
     }
     if (!out.length) return fallback();
     return { questions: out, dynamic: true as const };
-  } catch {
+  } catch (e) {
+    logError("gemini.aiQuiz", e);
     return fallback();
   }
 }
@@ -263,7 +276,8 @@ export async function aiImprove(profile: ParsedProfile) {
   try {
     const text = await genText(`${GUARD}\nRewrite these 2 resume bullets to be stronger WITHOUT inventing experience. Profile skills: ${profile.skills.join(", ")}.\nBullets: ${JSON.stringify(profile.projects.slice(0, 2))}`, false);
     return { suggestions, aiRewrite: text.slice(0, 800) };
-  } catch {
+  } catch (e) {
+    logError("gemini.aiImprove", e);
     return { suggestions };
   }
 }
@@ -289,7 +303,8 @@ export async function aiRoles(profile: ParsedProfile) {
       .filter((r) => r.role.length >= 3 && r.why.length >= 8);
     if (roles.length < 2) return { roles: fallback, aiPersonalized: false as const };
     return { roles: roles.slice(0, 4), aiPersonalized: true as const };
-  } catch {
+  } catch (e) {
+    logError("gemini.aiRoles", e);
     return { roles: fallback, aiPersonalized: false as const };
   }
 }
@@ -308,7 +323,8 @@ export async function aiChat(profile: ParsedProfile | null, history: { role: str
     const convo = history.map((h) => `${h.role}: ${h.text}`).join("\n");
     const text = await genText(`${ctx}\n${convo}\nuser: ${message}`, false);
     return { reply: text.slice(0, 1200) };
-  } catch {
+  } catch (e) {
+    logError("gemini.aiChat", e);
     return { reply: "AI unreachable — try again (demo fallback active)." };
   }
 }

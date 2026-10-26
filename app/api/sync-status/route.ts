@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { log, logError, logged } from "@/lib/log";
 import { authed, bust } from "@/lib/server-db";
 
 // GET /api/sync-status — proves whether cloud sync can work:
@@ -6,7 +7,7 @@ import { authed, bust } from "@/lib/server-db";
 // Used by the Profile sync card to turn silent failures into fixes.
 const TABLES = ["profiles", "analyses", "job_matches", "roadmaps", "quiz_attempts", "ai_cache", "chat_sessions"] as const;
 
-export async function GET() {
+export const GET = logged("api.sync-status.GET", async () => {
   const auth = await authed().catch(() => null);
   if (!auth) return NextResponse.json({ signedIn: false });
   const sb = auth.sb as unknown as {
@@ -25,11 +26,13 @@ export async function GET() {
         ? { ok: false, detail: r.error.message.slice(0, 120) }
         : { ok: true, count: r.count ?? undefined };
     } catch (e) {
+      logError("api.sync-status", e, { table: t });
       tables[t] = { ok: false, detail: e instanceof Error ? e.message.slice(0, 120) : "probe failed" };
     }
   }
   const missing = Object.entries(tables).filter(([, v]) => !v.ok).map(([k]) => k);
+  if (missing.length) log("error", "api.sync-status", "tables unreachable", { missing, details: Object.fromEntries(missing.map((k) => [k, tables[k].detail])) });
   // Fresh reads after a schema run — drop stale negative caches.
   if (missing.length === 0) bust("");
   return NextResponse.json({ signedIn: true, userId: auth.userId, tables, missing });
-}
+});

@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
+import { log, logError, logged } from "@/lib/log";
 import { aiMatch } from "@/lib/gemini";
 import { matchJob } from "@/lib/analysis";
 import type { ParsedProfile, JobMatch } from "@/lib/types";
 import { authed, findMatch, saveMatch, sha } from "@/lib/server-db";
 
-export async function POST(req: Request) {
+export const POST = logged("api.match.POST", async (req: Request) => {
   try {
     const { profile, jobs } = await req.json() as { profile: ParsedProfile; jobs: { title: string; company: string; jd: string }[] };
     if (!profile || !jobs?.length) return NextResponse.json({ error: "Profile + at least 1 JD required." }, { status: 400 });
@@ -60,14 +61,16 @@ export async function POST(req: Request) {
       }
     }
 
+    log("info", "api.match", "matched", { jobs: list.length, cached: allCached, signedIn: Boolean(auth) });
     return NextResponse.json({ matches, strategy, dbIds, cached: allCached });
-  } catch {
+  } catch (e) {
+    logError("api.match", e);
     return NextResponse.json({ error: "Match failed." }, { status: 500 });
   }
-}
+});
 
 // History for the Jobs page (cached reads, no AI).
-export async function GET(req: Request) {
+export const GET = logged("api.match.GET", async (req: Request) => {
   try {
     const { searchParams } = new URL(req.url);
     if (searchParams.get("history") !== "1") return NextResponse.json({ error: "Use ?history=1" }, { status: 400 });
@@ -76,7 +79,8 @@ export async function GET(req: Request) {
     const { listHistory } = await import("@/lib/server-db");
     const items = await listHistory(auth.userId, auth.sb, "matches", 10).catch(() => []);
     return NextResponse.json({ items });
-  } catch {
+  } catch (e) {
+    logError("api.match", e);
     return NextResponse.json({ items: [] });
   }
-}
+});

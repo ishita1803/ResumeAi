@@ -14,6 +14,7 @@ export default function UploadPage() {
   const [busy, setBusy] = React.useState(false);
   const [stage, setStage] = React.useState(0);
   const [err, setErr] = React.useState("");
+  const [hint, setHint] = React.useState("");
   const [result, setResult] = React.useState<{ profile: { name: string; skills: string[] }; health: { score: number; issues: { section: string; severity: string; message: string; fix: string }[]; strengths: string[] }; aiNote?: string; cached?: boolean; analysisId?: string | null } | null>(null);
 
   React.useEffect(() => {
@@ -25,11 +26,11 @@ export default function UploadPage() {
   }, [busy]);
 
   async function analyze(t: string) {
-    setBusy(true); setErr(""); setResult(null);
+    setBusy(true); setErr(""); setHint(""); setResult(null);
     try {
       const r = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resumeText: t }) });
       const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "Analysis failed");
+      if (!r.ok) { setHint(j.hint || ""); throw new Error(j.error || "Analysis failed"); }
       setResult(j);
       setResume(t, j.profile, j.health); // store syncs to cloud (same device + others)
     } catch (e) { setErr(e instanceof Error ? e.message : "Failed"); }
@@ -38,7 +39,7 @@ export default function UploadPage() {
 
   async function onFile(f: File | undefined) {
     if (!f) return;
-    setErr("");
+    setErr(""); setHint("");
     if (!f.name.toLowerCase().endsWith(".pdf")) { setErr("Only PDF for now — or paste text below."); return; }
     setBusy(true);
     try {
@@ -73,7 +74,12 @@ export default function UploadPage() {
               <span className="flex items-center gap-1.5"><ClipboardPaste size={15} /> Try sample</span>
             </button>
           </div>
-          {err && <div className="rounded-[10px] px-3.5 py-2.5 text-[13px] font-medium" style={{ background: "#FDE8E8", color: "#B42323" }}>{err} — fix: use a text-based PDF or paste text.</div>}
+          {err && (
+            <div role="alert" className="rounded-[12px] border px-4 py-3" style={{ background: "#FFF6F5", borderColor: "#F3C9C4" }}>
+              <p className="text-[14px] font-bold" style={{ color: "#8F2318" }}>{err}</p>
+              <p className="mt-1 text-[12.5px] leading-5" style={{ color: "#5B4A47" }}>{hint || "Try a text-based PDF, or paste the text below."}</p>
+            </div>
+          )}
         </div>
 
         <div className="card card-elev min-w-0 p-4 sm:p-6">
