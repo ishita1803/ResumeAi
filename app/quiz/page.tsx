@@ -2,6 +2,7 @@
 import React from "react";
 import { useApp } from "@/lib/store";
 import { AppShell, Empty, Chip } from "@/components/shell";
+import { AiNotice } from "@/components/ai-notice";
 import { QuizSkeleton } from "@/components/loading";
 import { ALL_SKILLS } from "@/lib/skills";
 import type { QuizQ } from "@/lib/types";
@@ -17,6 +18,7 @@ export default function QuizPage() {
   const [done, setDone] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState("");
+  const [aiDown, setAiDown] = React.useState(false);
   const [setupOpen, setSetupOpen] = React.useState(true);
   const [topics, setTopics] = React.useState<string[]>(profile?.skills ?? []);
   const [count, setCount] = React.useState(6);
@@ -28,7 +30,7 @@ export default function QuizPage() {
 
   async function gen() {
     if (!profile || !topics.length) return;
-    setBusy(true); setErr(""); setDone(false); setAns({}); setIdx(0); setSetupOpen(false);
+    setBusy(true); setErr(""); setAiDown(false); setDone(false); setAns({}); setIdx(0); setSetupOpen(false);
     try {
       const r = await fetch("/api/ai?kind=quiz", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -42,6 +44,7 @@ export default function QuizPage() {
         return;
       }
       setQs(j.questions); setQuiz(j.questions);
+      setAiDown(j.dynamic === false);
     } catch {
       setErr("Network error while generating the quiz. Please try again.");
       setSetupOpen(true);
@@ -155,6 +158,7 @@ export default function QuizPage() {
           {!topics.length && <div className="mt-2 text-center text-[12.5px] font-medium" style={{ color: "#B42323" }}>Pick at least one topic to start.</div>}
         </div>
       )}
+      {aiDown && !busy && !setupOpen && <div className="mt-3"><AiNotice>AI couldn't generate fresh questions — these come from the built-in practice bank.</AiNotice></div>}
       {err && !busy && <div role="alert" className="mt-3 rounded-[10px] px-3.5 py-2.5 text-[13px]" style={{ background: "#FDECEC", color: "#B42318" }}>{err}</div>}
       {busy && <div className="mt-3"><QuizSkeleton /></div>}
 

@@ -3,6 +3,7 @@ import React from "react";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/lib/store";
 import { AppShell, ScoreDial, Meter, Chip } from "@/components/shell";
+import { AiNotice } from "@/components/ai-notice";
 import { AnalyzingSteps, DossierSkeleton } from "@/components/loading";
 import { extractTextFromPDF, SAMPLE_RESUME } from "@/lib/pdf";
 import { FileUp, ClipboardPaste, Sparkles, Loader2 } from "lucide-react";
@@ -15,7 +16,7 @@ export default function UploadPage() {
   const [stage, setStage] = React.useState(0);
   const [err, setErr] = React.useState("");
   const [hint, setHint] = React.useState("");
-  const [result, setResult] = React.useState<{ profile: { name: string; skills: string[] }; health: { score: number; issues: { section: string; severity: string; message: string; fix: string }[]; strengths: string[] }; aiNote?: string; cached?: boolean; analysisId?: string | null } | null>(null);
+  const [result, setResult] = React.useState<{ parsedBy?: string; profile: { name: string; skills: string[] }; health: { score: number; issues: { section: string; severity: string; message: string; fix: string }[]; strengths: string[] }; aiNote?: string; cached?: boolean; analysisId?: string | null } | null>(null);
 
   React.useEffect(() => {
     if (!busy) return;
@@ -97,6 +98,7 @@ export default function UploadPage() {
                 <div className="min-w-0">
                   <div className="font-display break-words text-[18px] font-bold">{result.profile.name}</div>
                   <div className="mt-1 flex flex-wrap gap-1.5">{result.profile.skills.slice(0, 8).map((s) => <Chip key={s} tone="info">{s}</Chip>)}</div>
+                  {result.parsedBy === "local" && <div className="mt-2"><AiNotice>AI parsing is unavailable right now — your resume was read by the basic parser, so skills and sections may be less accurate. Try again in a minute.</AiNotice></div>}
                   {result.aiNote && <div className="mt-2 text-[12.5px] italic" style={{ color: "#3F4A63" }}>{result.aiNote}</div>}
                   {result.cached && <div className="font-data mt-2 inline-block rounded-full px-2.5 py-1 text-[10px] font-bold" style={{ background: "#E6F7EE", color: "#0B7A55" }}>SAVED RESULT · ALREADY CHECKED</div>}
                 </div>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useApp } from "@/lib/store";
 import { AppShell, ScoreDial, Meter, Empty, Chip } from "@/components/shell";
 import { readiness, recommendRoles } from "@/lib/analysis";
+import { AiNotice } from "@/components/ai-notice";
 import { Reveal } from "@/components/reveal";
 import { ArrowRight, UploadCloud, Briefcase, Map } from "lucide-react";
 
@@ -121,6 +122,7 @@ export default function Dashboard() {
               <span className="font-data rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wide" title="Rule-based fits from your detected skills" style={{ background: "#F0F3F9", color: "#3F4A63" }}>RULE-BASED</span>
             )}
           </div>
+          {rolesKind === "rules" && <div className="mt-3"><AiNotice>AI personalization is unavailable right now — these fits are rule-based from your detected skills.</AiNotice></div>}
           <div className="mt-3 grid gap-2.5">
             {recs.map((r) => (
               <div key={r.role} className="min-w-0 rounded-[10px] border px-3.5 py-2.5" style={{ borderColor: "#E2E8F2" }}>
