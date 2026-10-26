@@ -22,7 +22,8 @@ const FALLBACKS = ["gemini-3-flash-preview", "gemini-flash-lite-latest"];
 
 function model(name: string) {
   const gen = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-  return gen.getGenerativeModel({ model: name });
+  // Cap each attempt so a hung model falls through to the next one instead of eating the whole function budget.
+  return gen.getGenerativeModel({ model: name }, { timeout: 15000 });
 }
 
 /** Try models in order; throw only when all fail. Saves sessions during 503 spikes. */

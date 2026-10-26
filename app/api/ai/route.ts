@@ -3,6 +3,9 @@ import { log, logError, logged } from "@/lib/log";
 import { aiRoadmap, aiQuiz, aiImprove, aiChat, aiRoles } from "@/lib/gemini";
 import { aiCacheGet, aiCacheSet, authed, findRoadmap, saveRoadmap, sha } from "@/lib/server-db";
 
+// Quiz fans out one Gemini call per topic; the default function timeout is too short.
+export const maxDuration = 60;
+
 export const POST = logged("api.ai.POST", async (req: Request) => {
   const url = new URL(req.url);
   const kind = url.searchParams.get("kind") ?? "roadmap";
