@@ -8,8 +8,17 @@ import { cleanName } from "./analysis";
 import { log, logError } from "./log";
 import type { ParsedProfile, QuizQ } from "./types";
 
+// GEMINI_API_KEY is primary; GEMINI_API_KEY_2 is the backup used when the first is exhausted or rejected.
+function keys(): string[] {
+  return [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_2].map((k) => k?.trim() ?? "").filter(Boolean);
+}
+
+// Key-level failures (bad key, quota) won't be fixed by trying another model, so skip to the next key.
+const KEY_ERR = /\b(401|403|429)\b|API key|quota|RESOURCE_EXHAUSTED|PERMISSION_DENIED/i;
+const deadUntil = new Map<number, number>();
+
 function hasKey() {
-  const ok = Boolean(process.env.GEMINI_API_KEY);
+  const ok = keys().length > 0;
   if (!ok) log("warn", "gemini", "GEMINI_API_KEY missing — demo mode");
   return ok;
 }
@@ -20,34 +29,45 @@ const MODEL = process.env.GEMINI_MODEL?.trim() || "gemini-flash-latest";
 // Free-tier aliases 503 under load spikes — fall through the chain.
 const FALLBACKS = ["gemini-3-flash-preview", "gemini-flash-lite-latest"];
 
-function model(name: string) {
-  const gen = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+function model(name: string, key: string) {
+  const gen = new GoogleGenerativeAI(key);
   // Cap each attempt so a hung model falls through to the next one instead of eating the whole function budget.
   return gen.getGenerativeModel({ model: name }, { timeout: 15000 });
 }
 
-/** Try models in order; throw only when all fail. Saves sessions during 503 spikes. */
+/** Try each key, and within it each model in order; throw only when everything fails. Saves sessions during 503 spikes and key quota exhaustion. */
 async function genText(prompt: string, jsonMode: boolean, opts?: { temperature?: number; maxOutputTokens?: number }): Promise<string> {
   const tried: string[] = [];
   const t0 = Date.now();
-  for (const name of [MODEL, ...FALLBACKS.filter((f) => f !== MODEL)]) {
-    try {
-      const m = model(name);
-      const r = await m.generateContent({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: jsonMode
-          ? { responseMimeType: "application/json", temperature: opts?.temperature ?? 0.1, maxOutputTokens: opts?.maxOutputTokens ?? 2048 }
-          : { temperature: opts?.temperature ?? 0.4, maxOutputTokens: opts?.maxOutputTokens ?? 1200 },
-      });
-      const out = r.response.text();
-      log("info", "gemini", "generated", { model: name, json: jsonMode, promptChars: prompt.length, outChars: out.length, ms: Date.now() - t0, attempt: tried.length + 1 });
-      return out;
-    } catch (e) {
-      log("warn", "gemini", "model failed, trying next", { model: name, err: (e as Error).message?.slice(0, 200) });
-      tried.push(`${name}: ${(e as Error).message?.slice(0, 80)}`);
+  const all = keys();
+  // Skip keys that failed recently (60s) unless every key is marked dead.
+  const live = all.map((k, i) => ({ k, i })).filter(({ i }) => (deadUntil.get(i) ?? 0) < Date.now());
+  for (const { k, i } of live.length ? live : all.map((k, i) => ({ k, i }))) {
+    for (const name of [MODEL, ...FALLBACKS.filter((f) => f !== MODEL)]) {
+      try {
+        const m = model(name, k);
+        const r = await m.generateContent({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: jsonMode
+            ? { responseMimeType: "application/json", temperature: opts?.temperature ?? 0.1, maxOutputTokens: opts?.maxOutputTokens ?? 2048 }
+            : { temperature: opts?.temperature ?? 0.4, maxOutputTokens: opts?.maxOutputTokens ?? 1200 },
+        });
+        const out = r.response.text();
+        log("info", "gemini", "generated", { model: name, keyIndex: i, json: jsonMode, promptChars: prompt.length, outChars: out.length, ms: Date.now() - t0, attempt: tried.length + 1 });
+        return out;
+      } catch (e) {
+        const msg = (e as Error).message ?? "";
+        const keyLevel = KEY_ERR.test(msg);
+        log("warn", "gemini", keyLevel ? "key failed, switching key" : "model failed, trying next", { model: name, keyIndex: i, err: msg.slice(0, 200) });
+        tried.push(`k${i}/${name}: ${msg.slice(0, 80)}`);
+        if (keyLevel) {
+          deadUntil.set(i, Date.now() + 60_000);
+          break;
+        }
+      }
     }
   }
-  log("error", "gemini", "all models failed", { tried });
+  log("error", "gemini", "all keys/models failed", { tried, keys: all.length });
   throw new Error(tried.join(" | "));
 }
 
